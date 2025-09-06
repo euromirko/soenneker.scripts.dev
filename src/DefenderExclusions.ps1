@@ -138,8 +138,17 @@ $processes = @(
     "gulp.exe",
     "esbuild.exe",
     "webpack.exe",
-    "python.exe"
+    "python.exe",
+    "ngrok.exe"
 )
+
+# Add ngrok paths (only if present)
+$ngrokPaths = @(
+    "$env:ProgramData\chocolatey\bin",
+    "$env:ProgramData\chocolatey\lib\ngrok"
+) | Where-Object { Test-Path $_ }
+
+$paths += $ngrokPaths
 
 # Combine all path candidates and keep only those that exist (Defender allows non-existing, but keeping clean)
 $paths = @()
