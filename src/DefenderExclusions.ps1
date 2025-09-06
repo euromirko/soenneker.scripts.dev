@@ -8,13 +8,11 @@ Adds developer-friendly Microsoft Defender exclusions for Visual Studio, .NET, N
 - You can remove later via Remove-MpPreference (same params).
 
 .PARAMETER WhatIf
-Shows what would be added without changing system state.
+Provided automatically when SupportsShouldProcess is enabled. Use -WhatIf to preview changes.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
-param(
-    [switch]$WhatIf
-)
+param()  # <-- no custom WhatIf here
 
 function Assert-Admin {
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -22,10 +20,11 @@ function Assert-Admin {
 }
 
 function Add-ExclusionItems {
+    [CmdletBinding(SupportsShouldProcess)]
     param(
-        [string[]]$Paths,
-        [string[]]$Processes,
-        [string[]]$Extensions
+        [string[]]$Paths = @(),
+        [string[]]$Processes = @(),
+        [string[]]$Extensions = @()
     )
 
     try {
@@ -44,7 +43,7 @@ function Add-ExclusionItems {
 
     if ($toAddPaths.Count -gt 0) {
         foreach ($p in $toAddPaths) {
-            if ($PSCmdlet.ShouldProcess("Defender ExclusionPath", "Add '$p'")) {
+            if ($PSCmdlet.ShouldProcess($p, "Add to Defender ExclusionPath")) {
                 Add-MpPreference -ExclusionPath $p
             }
         }
@@ -52,7 +51,7 @@ function Add-ExclusionItems {
 
     if ($toAddProcesses.Count -gt 0) {
         foreach ($proc in $toAddProcesses) {
-            if ($PSCmdlet.ShouldProcess("Defender ExclusionProcess", "Add '$proc'")) {
+            if ($PSCmdlet.ShouldProcess($proc, "Add to Defender ExclusionProcess")) {
                 Add-MpPreference -ExclusionProcess $proc
             }
         }
@@ -60,20 +59,25 @@ function Add-ExclusionItems {
 
     if ($toAddExtensions.Count -gt 0) {
         foreach ($ext in $toAddExtensions) {
-            if ($PSCmdlet.ShouldProcess("Defender ExclusionExtension", "Add '$ext'")) {
+            if ($PSCmdlet.ShouldProcess($ext, "Add to Defender ExclusionExtension")) {
                 Add-MpPreference -ExclusionExtension $ext
             }
         }
     }
 
-    Write-Host "Done. Current exclusion counts => Paths: $((Get-MpPreference).ExclusionPath.Count), Processes: $((Get-MpPreference).ExclusionProcess.Count), Extensions: $((Get-MpPreference).ExclusionExtension.Count)" -ForegroundColor Green
+    $after = Get-MpPreference
+    $pathsCount      = @($after.ExclusionPath).Count
+    $procCount       = @($after.ExclusionProcess).Count
+    $extCount        = @($after.ExclusionExtension).Count
+
+    Write-Host "Done. Current exclusion counts => Paths: $pathsCount, Processes: $procCount, Extensions: $extCount" -ForegroundColor Green
 }
 
 Assert-Admin
 
 # Resolve common dev roots if present (only add existing)
 $devRoots = @(
-    "C:\git",
+    "C:\git"
 ) | Where-Object { Test-Path $_ }
 
 # Visual Studio + build tooling + caches
@@ -154,7 +158,8 @@ foreach ($root in $devRoots) {
 
 $paths = $paths | Sort-Object -Unique
 
-Add-ExclusionItems -Paths $paths -Processes $processes -Extensions $extensions -WhatIf:$WhatIf
+# No explicit -WhatIf here; it's automatic with SupportsShouldProcess
+Add-ExclusionItems -Paths $paths -Processes $processes -Extensions $extensions
 
 Write-Warning @"
 Review: Exclusions improve build/test throughput but reduce scanning on these targets.
