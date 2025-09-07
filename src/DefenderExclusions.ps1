@@ -1,4 +1,4 @@
-<# 
+<#
 .SYNOPSIS
 Adds developer-friendly Microsoft Defender exclusions for Visual Studio, .NET, NuGet, Node, and common dev roots.
 
@@ -12,7 +12,7 @@ Provided automatically when SupportsShouldProcess is enabled. Use -WhatIf to pre
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
-param()  # <-- no custom WhatIf here
+param()  # no custom WhatIf here
 
 function Assert-Admin {
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -66,14 +66,18 @@ function Add-ExclusionItems {
     }
 
     $after = Get-MpPreference
-    $pathsCount      = @($after.ExclusionPath).Count
-    $procCount       = @($after.ExclusionProcess).Count
-    $extCount        = @($after.ExclusionExtension).Count
+    $pathsCount = @($after.ExclusionPath).Count
+    $procCount  = @($after.ExclusionProcess).Count
+    $extCount   = @($after.ExclusionExtension).Count
 
     Write-Host "Done. Current exclusion counts => Paths: $pathsCount, Processes: $procCount, Extensions: $extCount" -ForegroundColor Green
 }
 
 Assert-Admin
+
+# ---------- Build EXCLUSIONS ----------
+# IMPORTANT: Initialize $paths BEFORE any += operations
+$paths = @()
 
 # Resolve common dev roots if present (only add existing)
 $devRoots = @(
@@ -112,13 +116,34 @@ $nodePaths = @(
     "$env:LOCALAPPDATA\pnpm-store"
 ) | Where-Object { Test-Path $_ }
 
-# You likely do NOT want blanket extension exclusions. Keep minimal.
-$extensions = @(
-    ".nupkg",
-    ".snupkg"
-)
+# Add ngrok paths (Chocolatey-specific; only if present)
+$ngrokPaths = @(
+    "$env:ProgramData\chocolatey\lib\ngrok",            # package root
+    "$env:ProgramData\chocolatey\lib\ngrok\tools",      # ngrok.exe lives here
+    "$env:ProgramData\chocolatey\bin"                   # shim
+) | Where-Object { Test-Path $_ }
 
-# Common processes used in builds/dev loops (curated)
+# Combine all path candidates (Defender allows non-existing, but we keep it clean)
+$paths += $devRoots
+$paths += $vsPaths
+$paths += $dotnetNugetPaths
+$paths += $nodePaths
+$paths += $ngrokPaths
+
+# Also add per-dev-root transient heavy dirs if present
+foreach ($root in $devRoots) {
+    foreach ($sub in @(".vs","bin","obj","packages","node_modules\.cache")) {
+        $p = Join-Path $root $sub
+        if (Test-Path $p) { $paths += $p }
+    }
+}
+
+$paths = $paths | Sort-Object -Unique
+
+# Minimal extension exclusions
+$extensions = @(".nupkg", ".snupkg")
+
+# Common processes used in builds/dev loops (include ngrok)
 $processes = @(
     "devenv.exe",
     "MSBuild.exe",
@@ -142,32 +167,7 @@ $processes = @(
     "ngrok.exe"
 )
 
-# Add ngrok paths (only if present)
-$ngrokPaths = @(
-    "$env:ProgramData\chocolatey\bin",
-    "$env:ProgramData\chocolatey\lib\ngrok"
-) | Where-Object { Test-Path $_ }
-
-$paths += $ngrokPaths
-
-# Combine all path candidates and keep only those that exist (Defender allows non-existing, but keeping clean)
-$paths = @()
-$paths += $devRoots
-$paths += $vsPaths
-$paths += $dotnetNugetPaths
-$paths += $nodePaths
-
-# Also add per-dev-root transient heavy dirs if present
-foreach ($root in $devRoots) {
-    foreach ($sub in @(".vs","bin","obj","packages","node_modules\.cache")) {
-        $p = Join-Path $root $sub
-        if (Test-Path $p) { $paths += $p }
-    }
-}
-
-$paths = $paths | Sort-Object -Unique
-
-# No explicit -WhatIf here; it's automatic with SupportsShouldProcess
+# Apply
 Add-ExclusionItems -Paths $paths -Processes $processes -Extensions $extensions
 
 Write-Warning @"
